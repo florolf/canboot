@@ -1,0 +1,100 @@
+* CANboot
+** About
+   CANboot is a tiny (440 bytes) CAN-enabled bootloader for AVRs (the current version is mildly specific to
+   the ATmega88a).
+
+   It was originally written because our [[https://entropia.de/Clubbus][Hackerspace automation project]] needed a CAN bootloader, but existing
+   bootloaders took up too much space (CANboot fits in a 256 word bootloader section, whereas others require
+   at least 512 words). It can do flashing and verification, but there would probably be enough space to
+   squeeze in EEPROM reading/writing, but that was not needed as of yet.
+   
+   A daemon for answering to flash requests using the Linux SocketCAN-framework is included.
+
+   If you want to use the bootloader and it doesn't work for you (or your μC) or you require additional features
+   (like EEPROM support), feel free to contact me.
+
+   CANboot and bootflashd are BSD-licensed. If you use this software, I would be happy if you dropped me a line
+   what you use it for.
+
+** Booting
+   CANboot checks whether it should just jump to the main program or request flashing by reading the value of
+   the first digital input of the MCP2515.
+
+** Using Bootflashd
+   /bootflashd/ requires two arguments: A SocketCAN interface to listen on and a directory containing firmware files.
+   It will not daemonize itself. I recommend you use [[http://smarden.org/runit/][Runit]] or something similar.
+
+    When a boot request comes in, bootflashd will look for a file named like the CAN identifier (padded with =0s= to 8
+    nibbles) that send the message, suffixed by =.hex=. If such a file exists, it is flashed to the μC. Either way, a reset
+    is sent afterwards.
+
+*** Firmware files
+    The firmware file format is a modified Intel HEX format. It may additionally contain comments (prefixed by =#=) and *must*
+    contain a microcontroller type specification (like =C atmega88=) before the data starts. Currently, the only supported type
+    is =atmega88=.
+
+    Other than that, only data records and the EOF record are supported.
+
+** Protocol
+*** Addressing
+    Our CAN network has a custom addressing scheme, but it's not hardwired into the bootloader. However, it
+    only supports extended IDs (but changing that should not be all too difficult). All messages pertaining
+    to a boot transaction use the same address (no matter whether the were sent from the device or the master),
+    this address can be set during compilation like this:
+    #+BEGIN_SRC sh
+    make BOARD_ADDR=123ABCDE
+    #+END_SRC
+
+*** Messages
+    Because it enabled some space-saving tricks with the MCP2515, the message format is slightly baroque, but you
+    should never have do interact with it directly.
+
+    Firstly, when the bootloader starts, it sends out a CAN frame containing the 8 Bytes =BOOTMAGC=, requesting
+    flashing. Other than that, the bootloader never sends out any frames without a prior request by the master.
+
+    Also, again to save size, the bootloader counts on the messages to be *sensible*. For example, a /Set Z-pointer/-Message
+    that is followed by a page write must always set the Z Pointer to a page boundary.
+*** Set Z-pointer (0x01)
+    #+BEGIN_EXAMPLE
+    01 ZH ZL
+    #+END_EXAMPLE
+
+    Sets the Z-pointer (the offset for all reading and writing operations) to =(ZH << 8 | ZL)=.
+*** Read flash (0x02)
+    #+BEGIN_EXAMPLE
+    02 length
+    #+END_EXAMPLE
+
+    Reads =length= (0 ≤ =length= ≤ 8) Bytes starting from the current Z-pointer position and
+    advances it accordingly. An answer message containing only the results is sent.
+
+*** Erase flash (0x03)
+    #+BEGIN_EXAMPLE
+    03
+    #+END_EXAMPLE
+    
+    Erases the currently selected page.
+
+*** Load buffer (0x04)
+    #+BEGIN_EXAMPLE
+    04 count d1 .. dN
+    #+END_EXAMPLE
+
+    Loads =count= *words* (a word is 2 Bytes!) into the current page buffer. =N = 2 * count=.
+    The Z-pointer is advanced accordingly.
+
+*** Write flash (0x05)
+    #+BEGIN_EXAMPLE
+    05
+    #+END_EXAMPLE
+    
+    Stores the data in the page buffer to the flash. The Z-pointer is reset to the value it had during
+    the last erase command.
+
+*** Reset (0x06)
+    #+BEGIN_EXAMPLE
+    06
+    #+END_EXAMPLE
+    
+    Jumps to the main program. Note that this is a simple jump. The watchdog reset method is intransparent to
+    the main program on newer AVRs (like the ATmega88) since it remains active after triggering.

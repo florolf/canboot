@@ -1,0 +1,11 @@
+SPI_DDR = DDRB
+
+SPI_MOSI = 3
+SPI_SCK = 5
+SPI_SS = 2
+
+CAN_DDR = DDRD
+CAN_PORT = PORTD
+CAN_CS = 6
+
+SPI_MASK = (1 << SPI_MOSI) | (1 << SPI_SCK) | (1 << SPI_SS)
