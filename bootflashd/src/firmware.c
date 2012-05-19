@@ -248,6 +248,8 @@ int firmware_flash(int cansock, const char *firmware_dir, canid_t addr) {
 
 			memcpy(pagebuf + fillcnt, data, to_write);
 			fillcnt += to_write;
+			offset += to_write;
+			length -= to_write;
 
 			if(fillcnt == params->pagesize) { // page complete, flash it
 				if(do_flash(cansock, addr, fillcnt, pagebuf) < 0) {
@@ -261,7 +263,6 @@ int firmware_flash(int cansock, const char *firmware_dir, canid_t addr) {
 				fillcnt = 0;
 			}
 
-			length -= to_write;
 			memmove(data, data + to_write, length);
 		}
 
